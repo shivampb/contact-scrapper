@@ -1,0 +1,8 @@
+url,page_title,status,emails_found,emails,response_time,error,text_emails,mailto_emails,data_attribute_emails,javascript_emails,comment_emails,form_emails
+https://tallorder.com,,error,0,,22.03142523765564,"400, message='Can not decode content-encoding: brotli (br). Please install `Brotli`', url='https://tallorder.com'",,,,,,
+https://goodcounsel.com,,error,0,,21.29320240020752,"400, message='Can not decode content-encoding: brotli (br). Please install `Brotli`', url='https://goodcounsel.com'",,,,,,
+https://soulkal.com,,error,0,,21.211450338363647,"400, message='Can not decode content-encoding: brotli (br). Please install `Brotli`', url='https://soulkal.com'",,,,,,
+https://plumpracticewear.com,,error,0,,20.26024055480957,"400, message='Can not decode content-encoding: brotli (br). Please install `Brotli`', url='https://plumpracticewear.com'",,,,,,
+https://MLTD.com,,error,0,,23.72880983352661,"400, message='Can not decode content-encoding: brotli (br). Please install `Brotli`', url='https://www.mltd.com/'",,,,,,
+https://festybesty.com,,error,0,,22.90089726448059,"400, message='Can not decode content-encoding: brotli (br). Please install `Brotli`', url='https://www.festybesty.com/'",,,,,,
+https://tutuspoiled.com,,error,0,,21.877593517303467,"400, message='Can not decode content-encoding: brotli (br). Please install `Brotli`', url='https://tutuspoiled.com'",,,,,,
