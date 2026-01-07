@@ -9,4 +9,5 @@ dependencies = [
     "brotlipy>=0.7.0",
     "pandas",
     "plotly",
+    "aiohttp>=3.12.7",
 ]
