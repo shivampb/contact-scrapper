@@ -426,9 +426,12 @@ def main():
     with tab2:
         st.header("📋 Scraping Results")
 
-        if st.session_state.results:
+        # Check for results from either regular scraper or CSV enricher
+        results_to_display = st.session_state.results if st.session_state.results else (st.session_state.csv_results if "csv_results" in st.session_state and st.session_state.csv_results else [])
+        
+        if results_to_display:
             # Create and display results dataframe
-            df = create_results_dataframe(st.session_state.results)
+            df = create_results_dataframe(results_to_display)
 
             # Filter options
             col1, col2, col3 = st.columns(3)
@@ -479,7 +482,7 @@ def main():
             # Show all unique emails
             if st.expander("📧 All Unique Emails Found"):
                 all_emails = set()
-                for result in st.session_state.results:
+                for result in results_to_display:
                     all_emails.update(result.emails)
 
                 if all_emails:
@@ -744,30 +747,47 @@ def main():
 
                         st.success("✅ Scraping completed!")
 
-                        # Create mapping of original URLs to emails
-                        url_to_emails = {}
+                        # Create mapping of domain to emails and source URLs
+                        from urllib.parse import urlparse
+                        
+                        domain_to_data = {}
                         if st.session_state.csv_results:
                             for result in st.session_state.csv_results:
                                 if result.emails:
-                                    # Extract the original URL without variants
-                                    original_url = result.url
-                                    if original_url not in url_to_emails:
-                                        url_to_emails[original_url] = result.emails
-                                    else:
-                                        # Merge emails
-                                        url_to_emails[original_url].extend(
-                                            result.emails
-                                        )
+                                    # Extract domain from the result URL
+                                    parsed = urlparse(result.url)
+                                    domain = parsed.netloc.replace('www.', '').lower()
+                                    
+                                    if domain not in domain_to_data:
+                                        domain_to_data[domain] = {
+                                            'emails': set(),
+                                            'source_urls': set()
+                                        }
+                                    
+                                    domain_to_data[domain]['emails'].update(result.emails)
+                                    domain_to_data[domain]['source_urls'].add(result.url)
 
-                        # Add EMAILS column to dataframe
+                        # Add EMAILS and SOURCE_URL columns to dataframe
                         enriched_df = df.copy()
-                        enriched_df["EMAILS"] = enriched_df[url_column].apply(
-                            lambda url: "; ".join(
-                                set(url_to_emails.get(str(url).strip(), []))
-                            )
-                            if pd.notna(url)
-                            else ""
-                        )
+                        enriched_df["EMAILS"] = ""
+                        enriched_df["SOURCE_URL"] = ""
+                        
+                        for idx, row in enriched_df.iterrows():
+                            original_url = str(row[url_column]).strip()
+                            if pd.notna(row[url_column]) and original_url:
+                                # Extract domain from original URL
+                                try:
+                                    parsed = urlparse(original_url)
+                                    domain = parsed.netloc.replace('www.', '').lower()
+                                    
+                                    if domain in domain_to_data:
+                                        emails = domain_to_data[domain]['emails']
+                                        source_urls = domain_to_data[domain]['source_urls']
+                                        
+                                        enriched_df.at[idx, "EMAILS"] = "; ".join(sorted(set(emails))) if emails else ""
+                                        enriched_df.at[idx, "SOURCE_URL"] = "; ".join(sorted(set(source_urls))) if source_urls else ""
+                                except:
+                                    pass
 
                         st.session_state.csv_enriched = enriched_df
 
