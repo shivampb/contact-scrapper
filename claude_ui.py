@@ -271,8 +271,8 @@ def main():
             st.metric("Unique Emails", unique_emails)
 
     # Main content area
-    tab1, tab2, tab3, tab4 = st.tabs(
-        ["🚀 Scraper", "📋 Results", "❌ Failed URLs", "📊 Analytics"]
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(
+        ["🚀 Scraper", "📋 Results", "❌ Failed URLs", "📊 Analytics", "📁 CSV Enricher"]
     )
 
     with tab1:
@@ -575,6 +575,256 @@ def main():
             create_analytics_dashboard(st.session_state.results)
         else:
             st.info("No data available for analytics. Please run the scraper first.")
+
+    with tab5:
+        st.header("📁 CSV Enricher - Extract Emails & Add Column")
+        st.markdown(
+            "Upload a CSV file, select the column with URLs, and we'll scrape emails and add them to your CSV!"
+        )
+
+        # Initialize CSV session state
+        if "csv_results" not in st.session_state:
+            st.session_state.csv_results = None
+        if "csv_dataframe" not in st.session_state:
+            st.session_state.csv_dataframe = None
+        if "csv_enriched" not in st.session_state:
+            st.session_state.csv_enriched = None
+
+        # CSV file upload
+        uploaded_csv = st.file_uploader("Choose a CSV file", type=["csv"])
+
+        if uploaded_csv is not None:
+            # Read CSV
+            try:
+                df = pd.read_csv(uploaded_csv)
+                st.session_state.csv_dataframe = df.copy()
+
+                st.success(f"✅ CSV loaded successfully! ({len(df)} rows)")
+
+                # Display preview
+                st.subheader("📋 CSV Preview")
+                st.dataframe(df.head(10), use_container_width=True)
+
+                # Column selection
+                st.subheader("🔗 Select URL Column")
+                st.write("Which column contains the URLs to scrape?")
+
+                columns = df.columns.tolist()
+                url_column = st.selectbox("Select URL Column:", columns, key="url_col")
+
+                # Show sample URLs
+                with st.expander("Preview URLs in selected column"):
+                    sample_urls = df[url_column].dropna().head(10).tolist()
+                    for i, url in enumerate(sample_urls, 1):
+                        st.write(f"{i}. {url}")
+
+                # Configuration
+                st.subheader("⚙️ Scraping Configuration")
+                col1, col2, col3 = st.columns(3)
+
+                with col1:
+                    csv_max_concurrent = st.slider(
+                        "Max Concurrent Requests",
+                        1,
+                        20,
+                        5,
+                        key="csv_concurrent",
+                    )
+                with col2:
+                    csv_timeout = st.slider(
+                        "Request Timeout (seconds)",
+                        10,
+                        120,
+                        30,
+                        key="csv_timeout",
+                    )
+                with col3:
+                    csv_delay = st.slider(
+                        "Delay Between Requests (seconds)",
+                        0.1,
+                        5.0,
+                        1.0,
+                        key="csv_delay",
+                    )
+
+                # URL enhancement options
+                col1, col2 = st.columns(2)
+                with col1:
+                    csv_auto_enhance = st.checkbox(
+                        "Auto-enhance URLs",
+                        value=True,
+                        key="csv_enhance",
+                        help="Automatically try common pages like /contact, /about",
+                    )
+                with col2:
+                    csv_try_both = st.checkbox(
+                        "Try both HTTP/HTTPS",
+                        value=False,
+                        key="csv_both_proto",
+                        help="Try both HTTP and HTTPS for each URL",
+                    )
+
+                # Start scraping button
+                if st.button("🚀 Start Scraping URLs from CSV", key="csv_scrape_btn"):
+                    # Extract URLs
+                    urls_from_csv = (
+                        df[url_column]
+                        .dropna()
+                        .astype(str)
+                        .tolist()
+                    )
+
+                    if not urls_from_csv:
+                        st.error("No URLs found in the selected column!")
+                    else:
+                        # Process URLs based on enhancement options
+                        processed_urls = []
+                        scraper_temp = SmartEmailScraper()
+
+                        for url in urls_from_csv:
+                            if csv_auto_enhance:
+                                normalized = scraper_temp.normalize_url(url)
+                                variants = scraper_temp.generate_url_variants(
+                                    normalized
+                                )
+                                processed_urls.extend(variants)
+                            else:
+                                processed_urls.append(scraper_temp.normalize_url(url))
+
+                        if csv_try_both:
+                            additional_urls = []
+                            for url in processed_urls.copy():
+                                if url.startswith("https://"):
+                                    http_version = url.replace("https://", "http://", 1)
+                                    additional_urls.append(http_version)
+                            processed_urls.extend(additional_urls)
+
+                        # Remove duplicates
+                        final_urls = []
+                        seen = set()
+                        for url in processed_urls:
+                            if url not in seen:
+                                seen.add(url)
+                                final_urls.append(url)
+
+                        st.info(
+                            f"Found {len(urls_from_csv)} URLs → Enhanced to {len(final_urls)} URLs to scrape"
+                        )
+
+                        # Progress tracking
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+                        results_container = st.empty()
+
+                        async def run_csv_scraping():
+                            scraper_config = {
+                                "max_concurrent": csv_max_concurrent,
+                                "timeout": csv_timeout,
+                                "delay_between_requests": csv_delay,
+                            }
+
+                            results_list = []
+
+                            def progress_callback(completed, total, result):
+                                progress = completed / total
+                                progress_bar.progress(progress)
+                                status_text.text(
+                                    f"Progress: {completed}/{total} URLs processed"
+                                )
+                                results_list.append(result)
+
+                            async with SmartEmailScraper(**scraper_config) as scraper:
+                                results = await scraper.scrape_urls(
+                                    final_urls, progress_callback
+                                )
+                                st.session_state.csv_results = results
+
+                        # Run the scraping
+                        asyncio.run(run_csv_scraping())
+
+                        st.success("✅ Scraping completed!")
+
+                        # Create mapping of original URLs to emails
+                        url_to_emails = {}
+                        if st.session_state.csv_results:
+                            for result in st.session_state.csv_results:
+                                if result.emails:
+                                    # Extract the original URL without variants
+                                    original_url = result.url
+                                    if original_url not in url_to_emails:
+                                        url_to_emails[original_url] = result.emails
+                                    else:
+                                        # Merge emails
+                                        url_to_emails[original_url].extend(
+                                            result.emails
+                                        )
+
+                        # Add EMAILS column to dataframe
+                        enriched_df = df.copy()
+                        enriched_df["EMAILS"] = enriched_df[url_column].apply(
+                            lambda url: "; ".join(
+                                set(url_to_emails.get(str(url).strip(), []))
+                            )
+                            if pd.notna(url)
+                            else ""
+                        )
+
+                        st.session_state.csv_enriched = enriched_df
+
+                        # Display enriched CSV
+                        st.subheader("✨ Enriched CSV Preview")
+                        st.dataframe(enriched_df, use_container_width=True)
+
+                        # Download button for enriched CSV
+                        csv_data = enriched_df.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Download Enriched CSV",
+                            data=csv_data,
+                            file_name="enriched_emails.csv",
+                            mime="text/csv",
+                            key="csv_download",
+                        )
+
+                        # Show statistics
+                        st.subheader("📊 Scraping Statistics")
+                        col1, col2, col3, col4 = st.columns(4)
+
+                        if st.session_state.csv_results:
+                            total = len(st.session_state.csv_results)
+                            successful = sum(
+                                1
+                                for r in st.session_state.csv_results
+                                if r.status == "success"
+                            )
+                            total_emails_found = sum(
+                                len(r.emails)
+                                for r in st.session_state.csv_results
+                            )
+                            unique_emails_found = len(
+                                set(
+                                    email
+                                    for r in st.session_state.csv_results
+                                    for email in r.emails
+                                )
+                            )
+
+                            with col1:
+                                st.metric("Total URLs Scraped", total)
+                            with col2:
+                                st.metric(
+                                    "Success Rate",
+                                    f"{(successful/total)*100:.1f}%" if total > 0 else "0%",
+                                )
+                            with col3:
+                                st.metric("Total Emails Found", total_emails_found)
+                            with col4:
+                                st.metric("Unique Emails", unique_emails_found)
+
+            except Exception as e:
+                st.error(f"Error reading CSV: {str(e)}")
+
+        else:
+            st.info("👆 Upload a CSV file to get started")
 
 
 def create_results_dataframe(results: List[EmailResult]) -> pd.DataFrame:
